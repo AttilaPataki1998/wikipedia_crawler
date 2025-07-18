@@ -32,7 +32,7 @@ class Wikipedia:
 
 
 class Analyzer:
-    def __init__(self, article_title: str, depth: int = 0, ignore: list[str] = [], percentile: int = 100) -> None:
+    def __init__(self, article_title: str, depth: int = 0, ignore: list[str] = [], percentile: int = 0) -> None:
         self.title = article_title
         self.depth = depth
         self.ignore_list = set(ignore)
