@@ -63,13 +63,9 @@ class Analyzer:
 
         result = pl.concat([counter_df, freq_df], how="vertical_relaxed")
 
-        result = self.filter_by_percentile(result)
+        result = self.filter_by_threshold(result)
 
-        print(">>>>>>>>>>>>>>>>>>>>>>>>")
-        print(result)
-        print(">>>>>>>>>>>>>>>>>>>>>>>>")
-
-        return dict(result_counter)
+        return result.to_dict(as_series=False)
 
     def get_data(self, title: str) -> (Counter, int, dict):
         wiki = Wikipedia(title)
@@ -84,16 +80,9 @@ class Analyzer:
 
         return counts, num_words, links
 
-    # FIXME: Finish filtering later
-    def filter_by_percentile(self, df: pl.DataFrame) -> None:
+    def filter_by_threshold(self, df: pl.DataFrame) -> pl.DataFrame:
+        filtered_cols = [
+            col for col in df.columns if df[col][1] > self.threshold
+        ]
+        filtered_df = df.select(filtered_cols)
         return filtered_df
-
-
-a = Analyzer("Seabrooke", 0, ["seabrooke"], 5)
-
-
-async def get_res():
-    res = await a.analyze()
-    print(res)
-
-asyncio.get_event_loop().run_until_complete(get_res())
