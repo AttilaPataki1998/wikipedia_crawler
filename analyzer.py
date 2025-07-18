@@ -1,5 +1,6 @@
 import asyncio
 from collections import Counter
+import polars as pl
 from textblob import TextBlob
 import wikipediaapi
 
@@ -37,7 +38,7 @@ class Analyzer:
         self.ignore_list = set(ignore)
         self.threshold = percentile
 
-    async def analyze(self) -> dict[str, list[int, float]]:
+    async def analyze(self) -> dict[str, list[float, float]]:
         visited = {self.title}
         result_counter, total_num_words, current_linked_pages = self.get_data(self.title)
 
@@ -47,15 +48,26 @@ class Analyzer:
                 if title in visited:
                     continue
 
-                freqs, num_words, links = self.get_data(title)
-                result_counter += freqs
+                counts, num_words, links = self.get_data(title)
+                result_counter += counts
                 next_linked_pages.update(links)
                 total_num_words += num_words
                 visited.add(title)
 
             current_linked_pages = next_linked_pages
 
-        # result = self.filter_by_percentile(dict(result_counter))
+        counter_df = pl.DataFrame(result_counter)
+        freq_df = counter_df.select(
+            pl.col("*") * 100 / total_num_words
+        )
+
+        result = pl.concat([counter_df, freq_df], how="vertical_relaxed")
+
+        result = self.filter_by_percentile(result)
+
+        print(">>>>>>>>>>>>>>>>>>>>>>>>")
+        print(result)
+        print(">>>>>>>>>>>>>>>>>>>>>>>>")
 
         return dict(result_counter)
 
@@ -66,18 +78,18 @@ class Analyzer:
             word: count for word, count in blob.word_counts.items() if word not in self.ignore_list
         }
 
-        freqs = Counter(filtered_count)
+        counts = Counter(filtered_count)
         links = wiki.links or {}
         num_words = len(blob.words)
 
-        return freqs, num_words, links
+        return counts, num_words, links
 
-    def filter_by_percentile(self, counts: dict[str, int]) -> None:
-        filtered_dict = {word: freq for word, freq in counts.items() if freq < self.threshold}
-        return filtered_dict
+    # FIXME: Finish filtering later
+    def filter_by_percentile(self, df: pl.DataFrame) -> None:
+        return filtered_df
 
 
-a = Analyzer("Seabrooke", 0, ["seabrooke"])
+a = Analyzer("Seabrooke", 0, ["seabrooke"], 5)
 
 
 async def get_res():
