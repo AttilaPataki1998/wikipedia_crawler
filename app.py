@@ -14,14 +14,14 @@ class Input(BaseModel):
 
 
 @app.get("/word-frequency")
-async def get_word_frequency(article: str, depth: int) -> dict[str, int]:
+async def get_word_frequency(article: str, depth: int) -> dict[str, list[int, float]]:
     analyzer = Analyzer(article, depth)
     result = await analyzer.analyze()
     return result
 
 
 @app.post("/keywords")
-async def get_specified_word_frequency(inp: Input) -> dict[str, int]:
+async def get_specified_word_frequency(inp: Input) -> dict[str, list[int, float]]:
     analyzer = Analyzer(inp.article, inp.depth, inp.ignore_list, inp.percentile)
     result = await analyzer.analyze()
     return result

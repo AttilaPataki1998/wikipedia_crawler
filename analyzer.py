@@ -1,6 +1,7 @@
-import wikipediaapi
-from textblob import TextBlob
+import asyncio
 from collections import Counter
+from textblob import TextBlob
+import wikipediaapi
 
 
 class Wikipedia:
@@ -26,22 +27,19 @@ class Wikipedia:
             return
 
         self.text = page.text
-        self.links = page.links
+        self.links = {title: wiki_obj for title, wiki_obj in page.links.items() if "Talk:" not in title}
 
 
 class Analyzer:
     def __init__(self, article_title: str, depth: int = 0, ignore: list[str] = [], percentile: int = 100) -> None:
         self.title = article_title
         self.depth = depth
-        self.ignore_list = ignore,
+        self.ignore_list = set(ignore)
         self.threshold = percentile
-        self.wiki = Wikipedia(self.title)
 
-    async def analyze(self) -> dict[str, int]:
-        blob = TextBlob(self.wiki.text) if self.wiki.text else TextBlob("")
-        result = Counter(blob.word_counts)
+    async def analyze(self) -> dict[str, list[int, float]]:
         visited = {self.title}
-        current_linked_pages = self.wiki.links or {}
+        result_counter, total_num_words, current_linked_pages = self.get_data(self.title)
 
         for _ in range(self.depth):
             next_linked_pages = {}
@@ -49,18 +47,41 @@ class Analyzer:
                 if title in visited:
                     continue
 
-                freqs, links = self.get_data(title)
-                result += freqs
+                freqs, num_words, links = self.get_data(title)
+                result_counter += freqs
                 next_linked_pages.update(links)
+                total_num_words += num_words
                 visited.add(title)
 
             current_linked_pages = next_linked_pages
 
-        return dict(result)
+        # result = self.filter_by_percentile(dict(result_counter))
 
-    def get_data(self, title: str) -> (Counter, dict):
+        return dict(result_counter)
+
+    def get_data(self, title: str) -> (Counter, int, dict):
         wiki = Wikipedia(title)
         blob = TextBlob(wiki.text) if wiki.text else TextBlob("")
-        freqs = Counter(blob.word_counts)
+        filtered_count = {
+            word: count for word, count in blob.word_counts.items() if word not in self.ignore_list
+        }
+
+        freqs = Counter(filtered_count)
         links = wiki.links or {}
-        return freqs, links
+        num_words = len(blob.words)
+
+        return freqs, num_words, links
+
+    def filter_by_percentile(self, counts: dict[str, int]) -> None:
+        filtered_dict = {word: freq for word, freq in counts.items() if freq < self.threshold}
+        return filtered_dict
+
+
+a = Analyzer("Seabrooke", 0, ["seabrooke"])
+
+
+async def get_res():
+    res = await a.analyze()
+    print(res)
+
+asyncio.get_event_loop().run_until_complete(get_res())
