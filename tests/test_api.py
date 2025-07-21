@@ -95,7 +95,9 @@ async def test_all_words_filtered_by_percentile(mock_analyze):
 
 
 @pytest.mark.asyncio
-async def test_empty_article_title():
+@patch("wikicrawler.app.Analyzer.analyze", new_callable=AsyncMock)
+async def test_empty_article_title(mock_analyze):
+    mock_analyze.return_value = {}
     payload = {
         "article": "",
         "depth": 1,
