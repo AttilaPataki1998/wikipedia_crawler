@@ -3,7 +3,38 @@ import pytest_asyncio
 import polars as pl
 from collections import Counter
 from unittest.mock import MagicMock, patch
-from wikicrawler.analyzer import Wikipedia, Analyzer
+from wikicrawler.analyzer import Wikipedia, WikipediaCLient, Analyzer
+
+from fastapi import HTTPException
+
+
+# -------------------------------
+# Mock Wikipedia class for tests
+# -------------------------------
+class MockWikipediaClient(WikipediaCLient):
+    def __init__(self) -> None:
+        self.articles = {
+            "MockArticle": "This is a test article with some test words.",
+            "Python_(programming_language)": "Python is a programming language. Python is great for data science.",
+            "Data_science": "Data science is an interdisciplinary field that uses scientific methods, processes, algorithms and systems to extract knowledge and insights from structured and unstructured data.",
+            "EmptyArticle": "",
+            "OnlyStopWords": "the and is a",
+            "NoLinks": "Some text without links."
+        }
+        self.links = {
+            "MockArticle": {"LinkedArticle1": None, "LinkedArticle2": None},
+            "Python_(programming_language)": {"OpenAI": None, "Wikipedia": None},
+            "Data_science": {"Machine_Learning": None, "Statistics": None},
+            "EmptyArticle": {},
+            "OnlyStopWords": {},
+            "NoLinks": {}
+        }
+
+    def get_article_text(self, title: str) -> str:
+        return self.articles.get(title, "")
+        
+    def get_article_links(self, title: str) -> dict:
+        return self.links.get(title, {})
 
 
 @pytest.fixture
@@ -19,68 +50,81 @@ def mock_page():
     return mock
 
 
-@patch("wikicrawler.analyzer.wikipediaapi.Wikipedia")
-def test_load_valid_page(mock_wikipedia, mock_page):
-    # Setup the mock
-    instance = mock_wikipedia.return_value
-    instance.article.return_value = mock_page
-
-    wiki = Wikipedia("Python")
-
-    assert wiki.text == "This is a sample Wikipedia article text."
-    assert isinstance(wiki.links, dict)
-    assert "Python_(programming_language)" in wiki.links
-    assert "OpenAI" in wiki.links
-    assert "Talk:Python" not in wiki.links  # should be filtered out
-
-
-@patch("wikicrawler.analyzer.wikipediaapi.Wikipedia")
-def test_load_nonexistent_page(mock_wikipedia):
-    # Setup a mock page that doesn't exist
-    mock_page = MagicMock()
-    mock_page.exists.return_value = False
-
-    instance = mock_wikipedia.return_value
-    instance.article.return_value = mock_page
-
-    wiki = Wikipedia("NonExistentPage123456")
-
-    assert wiki.text is None
-    assert wiki.links is None
-
-
-# --- Mock Wikipedia class ---
-class MockWikipedia:
-    def __init__(self, title):
-        self.title = title
-        self.text = "This is a test. Testing the test method and test behavior."
-        # self.links = {
-        #     "LinkedArticle1": None,
-        #     "LinkedArticle2": None
-        # }
-        self.links = None
-
-# --- Patch the real Wikipedia class ---
 @pytest.fixture
-def patch_wikipedia(monkeypatch):
-    monkeypatch.setattr("wikicrawler.analyzer.Wikipedia", MockWikipedia)
+def mock_page_not_found():
+    mock = MagicMock()
+    mock.exists.return_value = False
+    return mock
 
 
-# --- Test get_data ---
-def test_get_data_basic(patch_wikipedia):
-    analyzer = Analyzer("MockArticle", ignore=["the", "a"])
+@patch("wikicrawler.analyzer.wikipediaapi.Wikipedia")
+def test_get_article_text_call(mock_wikipedia, mock_page):
+    instance = mock_wikipedia.return_value
+    instance.article.return_value = mock_page
+
+    client = Wikipedia()
+    text = client.get_article_text("Python_(programming_language)")
+
+    mock_wikipedia.assert_called_once_with("WordAnalyzer", language="en")
+    instance.article.assert_called_once_with("Python_(programming_language)")
+    assert text == mock_page.text
+
+
+@patch("wikicrawler.analyzer.wikipediaapi.Wikipedia")
+def test_get_article_links_call(mock_wikipedia, mock_page):
+    instance = mock_wikipedia.return_value
+    instance.article.return_value = mock_page
+
+    client = Wikipedia()
+    links = client.get_article_links("Python_(programming_language)")
+
+    mock_wikipedia.assert_called_once_with("WordAnalyzer", language="en")
+    instance.article.assert_called_once_with("Python_(programming_language)")
+    assert "Python_(programming_language)" in links
+    assert "Talk:Python" not in links
+    assert "OpenAI" in links
+
+
+@patch("wikicrawler.analyzer.wikipediaapi.Wikipedia")
+def test_get_article_text_not_found(mock_wikipedia, mock_page_not_found):
+    instance = mock_wikipedia.return_value
+    instance.article.return_value = mock_page_not_found
+
+    client = Wikipedia()
+
+    with pytest.raises(HTTPException) as exc_info:
+        client.get_article_text("NonExistentPage")
+    
+    assert "Could not get page titled NonExistentPage" in str(exc_info.value)
+
+@patch("wikicrawler.analyzer.wikipediaapi.Wikipedia")
+def test_get_article_links_not_found(mock_wikipedia, mock_page_not_found):
+    instance = mock_wikipedia.return_value
+    instance.article.return_value = mock_page_not_found
+
+    client = Wikipedia()
+
+    with pytest.raises(HTTPException) as exc_info:
+        client.get_article_links("NonExistentPage")
+    
+    assert "Could not get page titled NonExistentPage" in str(exc_info.value)
+
+
+def test_get_data_basic():
+    mock_wiki = MockWikipediaClient()
+    analyzer = Analyzer("MockArticle", mock_wiki, ignore=["the", "is"])
     counts, num_words, links = analyzer.get_data("MockArticle")
 
     assert isinstance(counts, Counter)
     assert "test" in counts
     assert "the" not in counts  # ignored
-    assert num_words == 11
-    #assert "LinkedArticle1" in links
+    assert num_words == 9
+    assert "LinkedArticle1" in links
 
 
-# --- Test filter_by_threshold ---
 def test_filter_by_threshold():
-    analyzer = Analyzer("MockArticle", percentile=50)
+    mock_wiki = MockWikipediaClient()
+    analyzer = Analyzer("MockArticle", mock_wiki, percentile=50)
 
     # Simulate a simple DataFrame with counts and percentages
     df = pl.DataFrame({
@@ -95,8 +139,9 @@ def test_filter_by_threshold():
 
 
 @pytest.mark.asyncio
-async def test_analyze_basic(patch_wikipedia):
-    analyzer = Analyzer("MockArticle", depth=0, ignore=["is", "the"], percentile=0)
+async def test_analyze_basic():
+    mock_wiki = MockWikipediaClient()
+    analyzer = Analyzer("MockArticle", mock_wiki, depth=0, ignore=["the", "is"], percentile=0)
 
     result = await analyzer.analyze()
 
@@ -105,40 +150,12 @@ async def test_analyze_basic(patch_wikipedia):
     assert "test" in result
 
 
-# -------------------------------
-# Mock Wikipedia class for tests
-# -------------------------------
-class MockWikipedia2:
-    def __init__(self, title):
-        self.title = title
-        self.text = {
-            "EmptyArticle": "",
-            "OnlyStopWords": "the and is a",
-            "NoLinks": "Some text without links.",
-        }.get(title, "This is a test. Testing words and frequency.")
-        
-        if title == "NoLinks":
-            self.links = None
-        else:
-            self.links = {
-                "LinkedArticle1": None,
-                "LinkedArticle2": None
-            }
-
-
-# ----------------------------
-# Automatically patch Wikipedia
-# ----------------------------
-@pytest.fixture
-def patch_wikipedia_edge(monkeypatch):
-    monkeypatch.setattr("wikicrawler.analyzer.Wikipedia", MockWikipedia2)
-
-
 # --------------------------
 # Test: Edge Case - Empty Text
 # --------------------------
-def test_get_data_empty_article(patch_wikipedia_edge):
-    analyzer = Analyzer("EmptyArticle")
+def test_get_data_empty_article():
+    mock_wiki = MockWikipediaClient()
+    analyzer = Analyzer("EmptyArticle", mock_wiki)
     counts, num_words, links = analyzer.get_data("EmptyArticle")
 
     assert num_words == 0
@@ -149,8 +166,9 @@ def test_get_data_empty_article(patch_wikipedia_edge):
 # --------------------------
 # Test: Edge Case - Only Stopwords
 # --------------------------
-def test_get_data_only_stopwords(patch_wikipedia_edge):
-    analyzer = Analyzer("OnlyStopWords", ignore=["the", "and", "is", "a"])
+def test_get_data_only_stopwords():
+    mock_wiki = MockWikipediaClient()
+    analyzer = Analyzer("OnlyStopWords", mock_wiki, ignore=["the", "and", "is", "a"])
     counts, num_words, _ = analyzer.get_data("OnlyStopWords")
     assert num_words == 4  # total words before filtering
     assert counts == Counter()  # all words ignored
@@ -160,8 +178,9 @@ def test_get_data_only_stopwords(patch_wikipedia_edge):
 # Test: Edge Case - No Links
 # --------------------------
 @pytest.mark.asyncio
-async def test_analyze_no_links(patch_wikipedia_edge):
-    analyzer = Analyzer("NoLinks")
+async def test_analyze_no_links():
+    mock_wiki = MockWikipediaClient()
+    analyzer = Analyzer("NoLinks", mock_wiki)
     result = await analyzer.analyze()
     assert isinstance(result, dict)
     assert len(result) > 0  # should still return word counts
@@ -172,7 +191,8 @@ async def test_analyze_no_links(patch_wikipedia_edge):
 # Test: Edge Case - High Threshold
 # --------------------------
 def test_filter_by_threshold_no_columns_pass():
-    analyzer = Analyzer("MockArticle", percentile=1000)  # absurdly high threshold
+    mock_wiki = MockWikipediaClient()
+    analyzer = Analyzer("MockArticle", mock_wiki, percentile=1000)  # absurdly high threshold
 
     df = pl.DataFrame({
         "word1": [10, 5],

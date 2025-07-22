@@ -1,39 +1,67 @@
-import asyncio
+from fastapi import HTTPException
 from collections import Counter
 import polars as pl
 from textblob import TextBlob
 import wikipediaapi
 
 
-class Wikipedia:
-    """
-        A basic class for fetching information from wikipedia based on the title.
-    """
+class WikipediaCLient:
+    def get_article_text(self, title: str) -> str:
+        raise NotImplementedError("This method should be implemented by subclasses.")
 
-    def __init__(self, article_title: str) -> None:
+    def get_article_links(self, title: str) -> dict:
+        raise NotImplementedError("This method should be implemented by subclasses.")
+
+
+class Wikipedia(WikipediaCLient):
+    def __init__(self) -> None:
         self.user_agent = "WordAnalyzer"
         self.wiki = wikipediaapi.Wikipedia(self.user_agent, language="en")
-        self.title = article_title
-        self.text: str = None
-        self.links: list = None
-        self._load_page()
 
-    def _load_page(self) -> None:
-        page = self.wiki.article(self.title)
-
+    def get_article_text(self, title: str) -> str:
+        page = self.wiki.article(title)
         if not page.exists():
-            error_msg = f"Could not get page titled {self.title}."
-            " Maybe the article you are looking for does not exist."
-            print(error_msg)
-            return
+            error_msg = f"Could not get page titled {title}. Maybe the article you are looking for does not exist."
+            raise HTTPException(status_code=404, detail=error_msg)
+        return page.text
 
-        self.text = page.text
-        self.links = {title: wiki_obj for title, wiki_obj in page.links.items() if "Talk:" not in title}
+    def get_article_links(self, title: str) -> dict:
+        page = self.wiki.article(title)
+        if not page.exists():
+            error_msg = f"Could not get page titled {title}. Maybe the article you are looking for does not exist."
+            raise HTTPException(status_code=404, detail=error_msg)
+        return {title: linked_page for title, linked_page in page.links.items() if "Talk:" not in title}
+
+
+# class Wikipedia:
+#     """
+#         A basic class for fetching information from wikipedia based on the title.
+#     """
+
+#     def __init__(self, article_title: str) -> None:
+#         self.user_agent = "WordAnalyzer"
+#         self.wiki = wikipediaapi.Wikipedia(self.user_agent, language="en")
+#         self.title = article_title
+#         self.text: str = None
+#         self.links: list = None
+#         self._load_page()
+
+#     def _load_page(self) -> None:
+#         page = self.wiki.article(self.title)
+
+#         if not page.exists():
+#             error_msg = f"Could not get page titled {self.title}."
+#             " Maybe the article you are looking for does not exist."
+#             raise HTTPException(status_code=404, detail=error_msg)
+
+#         self.text = page.text
+#         self.links = {title: wiki_obj for title, wiki_obj in page.links.items() if "Talk:" not in title}
 
 
 class Analyzer:
-    def __init__(self, article_title: str, depth: int = 0, ignore: list[str] = [], percentile: int = 0) -> None:
+    def __init__(self, article_title: str, wiki_client: Wikipedia, depth: int = 0, ignore: list[str] = [], percentile: int = 0) -> None:
         self.title = article_title
+        self.wiki_client = wiki_client
         self.depth = depth
         self.ignore_list = set(ignore)
         self.threshold = percentile
@@ -68,14 +96,12 @@ class Analyzer:
         return result.to_dict(as_series=False)
 
     def get_data(self, title: str) -> (Counter, int, dict):
-        wiki = Wikipedia(title)
-        blob = TextBlob(wiki.text) if wiki.text else TextBlob("")
-        filtered_count = {
+        text = self.wiki_client.get_article_text(title)
+        links = self.wiki_client.get_article_links(title)
+        blob = TextBlob(text)
+        counts = Counter({
             word: count for word, count in blob.word_counts.items() if word not in self.ignore_list
-        }
-
-        counts = Counter(filtered_count)
-        links = wiki.links or {}
+        })
         num_words = len(blob.words)
 
         return counts, num_words, links
