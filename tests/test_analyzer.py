@@ -3,7 +3,7 @@ import pytest_asyncio
 import polars as pl
 from collections import Counter
 from unittest.mock import MagicMock, patch
-from wikicrawler.analyzer import Wikipedia, WikipediaCLient, Analyzer
+from wikicrawler.analyzer import Wikipedia, WikipediaClient, Analyzer
 
 from fastapi import HTTPException
 
@@ -11,7 +11,7 @@ from fastapi import HTTPException
 # -------------------------------
 # Mock Wikipedia class for tests
 # -------------------------------
-class MockWikipediaClient(WikipediaCLient):
+class MockWikipediaClient(WikipediaClient):
     def __init__(self) -> None:
         self.articles = {
             "MockArticle": "This is a test article with some test words.",
