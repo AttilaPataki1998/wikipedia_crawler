@@ -2,10 +2,11 @@ from fastapi import HTTPException
 from collections import Counter
 import polars as pl
 from textblob import TextBlob
+from typing import Dict, List, Tuple
 import wikipediaapi
 
 
-class WikipediaCLient:
+class WikipediaClient:
     def get_article_text(self, title: str) -> str:
         raise NotImplementedError("This method should be implemented by subclasses.")
 
@@ -13,7 +14,7 @@ class WikipediaCLient:
         raise NotImplementedError("This method should be implemented by subclasses.")
 
 
-class Wikipedia(WikipediaCLient):
+class Wikipedia(WikipediaClient):
     def __init__(self) -> None:
         self.user_agent = "WordAnalyzer"
         self.wiki = wikipediaapi.Wikipedia(self.user_agent, language="en")
@@ -33,40 +34,15 @@ class Wikipedia(WikipediaCLient):
         return {title: linked_page for title, linked_page in page.links.items() if "Talk:" not in title}
 
 
-# class Wikipedia:
-#     """
-#         A basic class for fetching information from wikipedia based on the title.
-#     """
-
-#     def __init__(self, article_title: str) -> None:
-#         self.user_agent = "WordAnalyzer"
-#         self.wiki = wikipediaapi.Wikipedia(self.user_agent, language="en")
-#         self.title = article_title
-#         self.text: str = None
-#         self.links: list = None
-#         self._load_page()
-
-#     def _load_page(self) -> None:
-#         page = self.wiki.article(self.title)
-
-#         if not page.exists():
-#             error_msg = f"Could not get page titled {self.title}."
-#             " Maybe the article you are looking for does not exist."
-#             raise HTTPException(status_code=404, detail=error_msg)
-
-#         self.text = page.text
-#         self.links = {title: wiki_obj for title, wiki_obj in page.links.items() if "Talk:" not in title}
-
-
 class Analyzer:
-    def __init__(self, article_title: str, wiki_client: Wikipedia, depth: int = 0, ignore: list[str] = [], percentile: int = 0) -> None:
+    def __init__(self, article_title: str, wiki_client: Wikipedia, depth: int = 0, ignore: List[str] = [], percentile: int = 0) -> None:
         self.title = article_title
         self.wiki_client = wiki_client
         self.depth = depth
         self.ignore_list = set(ignore)
         self.threshold = percentile
 
-    async def analyze(self) -> dict[str, list[float, float]]:
+    async def analyze(self) -> Dict[str, List[float]]:
         visited = {self.title}
         result_counter, total_num_words, current_linked_pages = self.get_data(self.title)
 
@@ -95,7 +71,7 @@ class Analyzer:
 
         return result.to_dict(as_series=False)
 
-    def get_data(self, title: str) -> (Counter, int, dict):
+    def get_data(self, title: str) -> Tuple[Counter, int, dict]:
         text = self.wiki_client.get_article_text(title)
         links = self.wiki_client.get_article_links(title)
         blob = TextBlob(text)
