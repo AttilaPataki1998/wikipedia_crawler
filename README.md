@@ -16,7 +16,7 @@ A FastAPI-based server that analyzes the textual content of Wikipedia articles. 
 
 ---
 
-## 🛠 Technologies Used
+## Technologies Used
 
 | Tool         | Purpose                          |
 |--------------|----------------------------------|
