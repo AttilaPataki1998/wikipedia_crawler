@@ -62,7 +62,7 @@ pip install fastapi uvicorn wikipedia-api textblob polars slowapi
 ## Running the Server
 
 ```bash
-uvicorn app:app --reload
+fastapi run app.py
 ```
 
 Once running, navigate to:  
